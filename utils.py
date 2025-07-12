@@ -27,7 +27,6 @@ from langchain.agents import AgentType, initialize_agent
 from langchain_community.document_loaders.csv_loader import CSVLoader
 from langchain_community.retrievers import BM25Retriever
 from langchain.retrievers import EnsembleRetriever
-from docx import Document
 from langchain.output_parsers import CommaSeparatedListOutputParser
 from langchain import LLMChain
 import datetime
@@ -43,45 +42,22 @@ load_dotenv()
 ############################################################
 
 def build_error_message(message):
-    """
-    エラーメッセージと管理者問い合わせテンプレートの連結
-
-    Args:
-        message: 画面上に表示するエラーメッセージ
-
-    Returns:
-        エラーメッセージと管理者問い合わせテンプレートの連結テキスト
-    """
     return "\n".join([message, ct.COMMON_ERROR_MESSAGE])
 
-
 def create_rag_chain(db_name):
-    """
-    引数として渡されたDB内を参照するRAGのChainを作成
-
-    Args:
-        db_name: RAG化対象のデータを格納するデータベース名
-    """
     logger = logging.getLogger(ct.LOGGER_NAME)
 
     docs_all = []
-    # AIエージェント機能を使わない場合の処理
     if db_name == ct.DB_ALL_PATH:
         folders = os.listdir(ct.RAG_TOP_FOLDER_PATH)
-        # 「data」フォルダ直下の各フォルダ名に対して処理
         for folder_path in folders:
             if folder_path.startswith("."):
                 continue
-            # フォルダ内の各ファイルのデータをリストに追加
             add_docs(f"{ct.RAG_TOP_FOLDER_PATH}/{folder_path}", docs_all)
-    # AIエージェント機能を使う場合の処理
     else:
-        # データベース名に対応した、RAG化対象のデータ群が格納されているフォルダパスを取得
         folder_path = ct.DB_NAMES[db_name]
-        # フォルダ内の各ファイルのデータをリストに追加
         add_docs(folder_path, docs_all)
 
-    # OSがWindowsの場合、Unicode正規化と、cp932（Windows用の文字コード）で表現できない文字を除去
     for doc in docs_all:
         doc.page_content = adjust_string(doc.page_content)
         for key in doc.metadata:
@@ -95,8 +71,6 @@ def create_rag_chain(db_name):
     splitted_docs = text_splitter.split_documents(docs_all)
 
     embeddings = OpenAIEmbeddings()
-
-    # すでに対象のデータベースが作成済みの場合は読み込み、未作成の場合は新規作成する
     if os.path.isdir(db_name):
         db = Chroma(persist_directory=".db", embedding_function=embeddings)
     else:
@@ -130,20 +104,10 @@ def create_rag_chain(db_name):
     return rag_chain
 
 def add_docs(folder_path, docs_all):
-    """
-    フォルダ内のファイル一覧を取得
-
-    Args:
-        folder_path: フォルダのパス
-        docs_all: 各ファイルデータを格納するリスト
-    """
     files = os.listdir(folder_path)
     for file in files:
-        # ファイルの拡張子を取得
         file_extension = os.path.splitext(file)[1]
-        # 想定していたファイル形式の場合のみ読み込む
         if file_extension in ct.SUPPORTED_EXTENSIONS:
-            # ファイルの拡張子に合ったdata loaderを使ってデータ読み込み
             loader = ct.SUPPORTED_EXTENSIONS[file_extension](f"{folder_path}/{file}")
         else:
             continue
@@ -151,75 +115,30 @@ def add_docs(folder_path, docs_all):
         docs_all.extend(docs)
 
 def run_company_doc_chain(param):
-    """
-    会社に関するデータ参照に特化したTool設定用の関数
-
-    Args:
-        param: ユーザー入力値
-
-    Returns:
-        LLMからの回答
-    """
     ai_msg = st.session_state.company_doc_chain.invoke({"input": param, "chat_history": st.session_state.chat_history})
     st.session_state.chat_history.extend([HumanMessage(content=param), AIMessage(content=ai_msg["answer"])])
-
     return ai_msg["answer"]
 
 def run_service_doc_chain(param):
-    """
-    サービスに関するデータ参照に特化したTool設定用の関数
-
-    Args:
-        param: ユーザー入力値
-
-    Returns:
-        LLMからの回答
-    """
     ai_msg = st.session_state.service_doc_chain.invoke({"input": param, "chat_history": st.session_state.chat_history})
     st.session_state.chat_history.extend([HumanMessage(content=param), AIMessage(content=ai_msg["answer"])])
     return ai_msg["answer"]
 
 def run_customer_doc_chain(param):
-    """
-    顧客とのやり取りに関するデータ参照に特化したTool設定用の関数
-
-    Args:
-        param: ユーザー入力値
-    
-    Returns:
-        LLMからの回答
-    """
     ai_msg = st.session_state.customer_doc_chain.invoke({"input": param, "chat_history": st.session_state.chat_history})
     st.session_state.chat_history.extend([HumanMessage(content=param), AIMessage(content=ai_msg["answer"])])
     return ai_msg["answer"]
 
 def delete_old_conversation_log(result):
-    """
-    古い会話履歴の削除
-
-    Args:
-        result: LLMからの回答
-    """
     response_tokens = len(st.session_state.enc.encode(result))
     st.session_state.total_tokens += response_tokens
-
     while st.session_state.total_tokens > ct.MAX_ALLOWED_TOKENS:
         removed_message = st.session_state.chat_history.pop(1)
         removed_tokens = len(st.session_state.enc.encode(removed_message.content))
         st.session_state.total_tokens -= removed_tokens
 
 def execute_agent_or_chain(chat_message):
-    """
-    AIエージェントもしくはAIエージェントなしのRAGのChainを実行
-
-    Args:
-        chat_message: ユーザーメッセージ
-    
-    Returns:
-        LLMからの回答
-    """
     logger = logging.getLogger(ct.LOGGER_NAME)
-
     if st.session_state.agent_mode == ct.AI_AGENT_MODE_ON:
         st_callback = StreamlitCallbackHandler(st.container())
         result = st.session_state.agent_executor.invoke({"input": chat_message}, {"callbacks": [st_callback]})
@@ -235,20 +154,11 @@ def execute_agent_or_chain(chat_message):
     return response
 
 def build_slackid_to_name_map(docs):
-    """
-    SlackIDから氏名へのマッピングを作成
-
-    Args:
-        docs: 従業員情報ファイルの読み込みデータ
-
-    Returns:
-        dict: {SlackID: 氏名}
-    """
     slackid_name_map = {}
     for doc in docs:
-        lines = doc.page_content.split("\n")
-        slack_id, name = None, None
-        for line in lines:
+        slack_id = None
+        name = None
+        for line in doc.page_content.split("\n"):
             if line.startswith("SlackID: "):
                 slack_id = line.replace("SlackID: ", "")
             if line.startswith("氏名: "):
@@ -258,14 +168,6 @@ def build_slackid_to_name_map(docs):
     return slackid_name_map
 
 def create_slack_id_text(slack_ids, slackid_name_map=None):
-    """
-    SlackIDまたは氏名を「と」で繋いだテキスト
-    Args:
-        slack_ids: SlackIDの一覧
-        slackid_name_map: {SlackID: 氏名}
-    Returns:
-        str
-    """
     slack_id_text = ""
     for i, sid in enumerate(slack_ids):
         if slackid_name_map and sid in slackid_name_map:
@@ -277,17 +179,6 @@ def create_slack_id_text(slack_ids, slackid_name_map=None):
     return slack_id_text
 
 def notice_slack(chat_message):
-    """
-    問い合わせ内容のSlackへの通知
-
-    Args:
-        chat_message: ユーザーメッセージ
-
-    Returns:
-        問い合わせサンクスメッセージ
-    """
-
-    # Slack通知用のAgent Executorを作成
     toolkit = SlackToolkit()
     tools = toolkit.get_tools()
     agent_executor = initialize_agent(
@@ -301,10 +192,8 @@ def notice_slack(chat_message):
     loader = CSVLoader(ct.INQUIRY_HISTORY_FILE_PATH, encoding=ct.CSV_ENCODING)
     docs_history = loader.load()
 
-    # 氏名マッピング作成
     slackid_name_map = build_slackid_to_name_map(docs)
 
-    # OSがWindowsの場合、Unicode正規化と、cp932（Windows用の文字コード）で表現できない文字を除去
     for doc in docs:
         doc.page_content = adjust_string(doc.page_content)
         for key in doc.metadata:
@@ -315,9 +204,7 @@ def notice_slack(chat_message):
             doc.metadata[key] = adjust_string(doc.metadata[key])
 
     docs_all = adjust_reference_data(docs, docs_history)
-    docs_all_page_contents = []
-    for doc in docs_all:
-        docs_all_page_contents.append(doc.page_content)
+    docs_all_page_contents = [doc.page_content for doc in docs_all]
 
     embeddings = OpenAIEmbeddings()
     db = Chroma.from_documents(docs_all, embedding=embeddings)
@@ -346,7 +233,6 @@ def notice_slack(chat_message):
     employee_ids = output_parser.parse(employee_id_response.content)
     target_employees = get_target_employees(employees, employee_ids)
     slack_ids = get_slack_ids(target_employees)
-    # 氏名テキストを作成
     slack_id_text = create_slack_id_text(slack_ids, slackid_name_map=slackid_name_map)
     context = get_context(target_employees)
     now_datetime = get_datetime()
@@ -362,32 +248,39 @@ def notice_slack(chat_message):
     return ct.CONTACT_THANKS_MESSAGE
 
 def adjust_reference_data(docs, docs_history):
-    """
-    Slack通知用の参照先データの整形
-
-    Args:
-        docs: 従業員情報ファイルの読み込みデータ
-        docs_history: 問い合わせ対応履歴ファイルの読み込みデータ
-
-    Returns:
-        従業員情報と問い合わせ対応履歴の結合テキスト
-    """
-
     docs_all = []
     for row in docs:
         row_lines = row.page_content.split("\n")
-        row_dict = {item.split(": ")[0]: item.split(": ")[1] for item in row_lines if ": " in item}
+        row_dict = {}
+        for item in row_lines:
+            if ": " in item:
+                try:
+                    k, v = item.split(": ", 1)
+                    row_dict[k] = v
+                except Exception:
+                    continue
         employee_id = row_dict.get("従業員ID", None)
 
         doc = ""
         same_employee_inquiries = []
         for row_history in docs_history:
             row_history_lines = row_history.page_content.split("\n")
-            row_history_dict = {item.split(": ")[0]: item.split(": ")[1] for item in row_history_lines if ": " in item}
+            row_history_dict = {}
+            for item in row_history_lines:
+                if ": " in item:
+                    try:
+                        k, v = item.split(": ", 1)
+                        row_history_dict[k] = v
+                    except Exception:
+                        continue
             if row_history_dict.get("従業員ID", None) == employee_id:
                 same_employee_inquiries.append(row_history_dict)
 
-        new_doc = Document()
+        # Document型でなく簡易オブジェクト
+        class DummyDoc:
+            pass
+
+        new_doc = DummyDoc()
 
         if same_employee_inquiries:
             doc += "【従業員情報】\n"
@@ -408,17 +301,6 @@ def adjust_reference_data(docs, docs_history):
     return docs_all
 
 def get_target_employees(employees, employee_ids):
-    """
-    問い合わせ内容と関連性が高い従業員情報一覧の取得
-
-    Args:
-        employees: 問い合わせ内容と関連性が高い従業員情報一覧
-        employee_ids: 問い合わせ内容と関連性が「特に」高い従業員のID一覧
-
-    Returns:
-        問い合わせ内容と関連性が「特に」高い従業員情報一覧
-    """
-
     target_employees = []
     duplicate_check = []
     target_text = "従業員ID"
@@ -430,89 +312,40 @@ def get_target_employees(employees, employee_ids):
                 continue
             duplicate_check.append(employee_id)
             target_employees.append(employee)
-    
     return target_employees
 
 def get_slack_ids(target_employees):
-    """
-    SlackIDの一覧を取得
-
-    Args:
-        target_employees: 問い合わせ内容と関連性が高い従業員情報一覧
-
-    Returns:
-        SlackIDの一覧
-    """
-
     target_text = "SlackID"
     slack_ids = []
     for employee in target_employees:
         num = employee.page_content.find(target_text)
         slack_id = employee.page_content[num+len(target_text)+2:].split("\n")[0]
         slack_ids.append(slack_id)
-    
     return slack_ids
 
 def get_context(docs):
-    """
-    プロンプトに埋め込むための従業員情報テキストの生成
-    Args:
-        docs: 従業員情報の一覧
-
-    Returns:
-        生成した従業員情報テキスト
-    """
-
     context = ""
     for i, doc in enumerate(docs, start=1):
         context += "===========================================================\n"
         context += f"{i}人目の従業員情報\n"
         context += "===========================================================\n"
         context += doc.page_content + "\n\n"
-
     return context
 
 def get_datetime():
-    """
-    現在日時を取得
-
-    Returns:
-        現在日時
-    """
-
     dt_now = datetime.datetime.now()
     now_datetime = dt_now.strftime('%Y年%m月%d日 %H:%M:%S')
-
     return now_datetime
 
 def preprocess_func(text):
-    """
-    形態素解析による日本語の単語分割
-    Args:
-        text: 単語分割対象のテキスト
-
-    Returns:
-        単語分割を実施後のテキスト
-    """
-
     tokenizer_obj = dictionary.Dictionary(dict="full").create()
     mode = tokenizer.Tokenizer.SplitMode.A
     tokens = tokenizer_obj.tokenize(text ,mode)
     words = [token.surface() for token in tokens]
     words = list(set(words))
-
     return words
 
 def adjust_string(s):
-    """
-    Windows環境でRAGが正常動作するよう調整
-    
-    Args:
-        s: 調整を行う文字列
-    
-    Returns:
-        調整を行った文字列
-    """
     if type(s) is not str:
         return s
     if sys.platform.startswith("win"):
