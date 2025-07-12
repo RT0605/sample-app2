@@ -11,6 +11,7 @@ import streamlit as st
 import logging
 import sys
 import unicodedata
+import pandas as pd  # ←追加
 from langchain_community.document_loaders import PyMuPDFLoader, Docx2txtLoader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
@@ -350,11 +351,11 @@ def notice_slack(chat_message):
     # 問い合わせ内容と関連性が高い従業員情報を、IDで照合して取得
     target_employees = get_target_employees(employees, employee_ids)
     
-    # 問い合わせ内容と関連性が高い従業員情報の中から、SlackIDのみを抽出
-    slack_ids = get_slack_ids(target_employees)
+    # 問い合わせ内容と関連性が高い従業員情報の中から、**SlackIDではなく名前**を抽出
+    slack_names = get_slack_names(target_employees)
     
-    # 抽出したSlackIDの連結テキストを生成
-    slack_id_text = create_slack_id_text(slack_ids)
+    # 抽出した名前の連結テキストを生成
+    slack_id_text = create_slack_id_text(slack_names)
     
     # プロンプトに埋め込むための（問い合わせ内容と関連性が高い）従業員情報テキストを取得
     context = get_context(target_employees)
@@ -452,44 +453,37 @@ def get_target_employees(employees, employee_ids):
     
     return target_employees
 
-def get_slack_ids(target_employees):
+def get_slack_names(target_employees):
     """
-    SlackIDの一覧を取得
+    SlackIDの一覧を取得し、CSVから名前に変換して返す
 
     Args:
         target_employees: 問い合わせ内容と関連性が高い従業員情報一覧
 
     Returns:
-        SlackIDの一覧
+        名前の一覧
     """
-
-    target_text = "SlackID"
-    slack_ids = []
+    employee_df = pd.read_csv(ct.EMPLOYEE_FILE_PATH, encoding=ct.CSV_ENCODING)
+    slack_names = []
     for employee in target_employees:
-        num = employee.page_content.find(target_text)
-        slack_id = employee.page_content[num+len(target_text)+2:].split("\n")[0]
-        slack_ids.append(slack_id)
-    
-    return slack_ids
+        slack_id_pos = employee.page_content.find("SlackID")
+        slack_id = employee.page_content[slack_id_pos + len("SlackID") + 2:].split("\n")[0]
+        matched_name = employee_df.loc[employee_df['SlackID'] == slack_id, '名前']
+        if not matched_name.empty:
+            slack_names.append(matched_name.values[0])
+    return slack_names
 
-def create_slack_id_text(slack_ids):
+def create_slack_id_text(slack_names):
     """
-    SlackIDの一覧を取得
+    名前を「と」で繋いだテキスト
 
     Args:
-        slack_ids: SlackIDの一覧
+        slack_names: 名前の一覧
 
     Returns:
-        SlackIDを「と」で繋いだテキスト
+        名前を「と」で繋いだテキスト
     """
-    slack_id_text = ""
-    for i, id in enumerate(slack_ids):
-        slack_id_text += f"「{id}」"
-        # 最後のSlackID以外、連結後に「と」を追加
-        if not i == len(slack_ids)-1:
-            slack_id_text += "と"
-    
-    return slack_id_text
+    return 'と'.join(f"「{name}」" for name in slack_names)
 
 def get_context(docs):
     """
