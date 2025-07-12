@@ -20,13 +20,10 @@ from langchain.agents import AgentType, initialize_agent
 import utils
 import constants as ct
 
-
-
 ############################################################
 # 設定関連
 ############################################################
 load_dotenv()
-
 
 ############################################################
 # 関数定義
@@ -44,7 +41,6 @@ def initialize():
     initialize_logger()
     # Agent Executorを作成
     initialize_agent_executor()
-
 
 def initialize_session_state():
     """
@@ -67,14 +63,12 @@ def initialize_session_state():
         # フィードバック送信後にThanksメッセージを表示するためのフラグ
         st.session_state.feedback_no_reason_send_flg = False
 
-
 def initialize_session_id():
     """
     セッションIDの作成
     """
     if "session_id" not in st.session_state:
         st.session_state.session_id = uuid4().hex
-
 
 def initialize_logger():
     """
@@ -98,7 +92,6 @@ def initialize_logger():
     log_handler.setFormatter(formatter)
     logger.setLevel(logging.INFO)
     logger.addHandler(log_handler)
-
 
 def initialize_agent_executor():
     """
@@ -148,6 +141,12 @@ def initialize_agent_executor():
             name = ct.SEARCH_WEB_INFO_TOOL_NAME,
             func=search.run,
             description=ct.SEARCH_WEB_INFO_TOOL_DESCRIPTION
+        ),
+        # FAQ検索用のTool
+        Tool(
+            name=ct.SEARCH_FAQ_TOOL_NAME,
+            func=utils.run_faq_doc_chain,
+            description=ct.SEARCH_FAQ_TOOL_DESCRIPTION
         )
     ]
 

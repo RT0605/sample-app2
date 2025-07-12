@@ -7,7 +7,6 @@
 ############################################################
 from langchain_community.document_loaders import PyMuPDFLoader, Docx2txtLoader, TextLoader
 
-
 ############################################################
 # 共通変数の定義
 ############################################################
@@ -31,7 +30,6 @@ CONTACT_THANKS_MESSAGE = """
     もしお急ぎの場合は、お電話にてご連絡をお願いいたします。
 """
 
-
 # ==========================================
 # ユーザーフィードバック関連
 # ==========================================
@@ -47,14 +45,12 @@ FEEDBACK_YES_MESSAGE = "ご満足いただけて良かったです！他にも�
 FEEDBACK_NO_MESSAGE = "ご期待に添えず申し訳ございません。今後の改善のために、差し支えない範囲でご満足いただけなかった理由を教えていただけますと幸いです。"
 FEEDBACK_THANKS_MESSAGE = "ご回答いただき誠にありがとうございます。"
 
-
 # ==========================================
 # ログ出力系
 # ==========================================
 LOG_DIR_PATH = "./logs"
 LOGGER_NAME = "ApplicationLog"
 LOG_FILE = "application.log"
-
 
 # ==========================================
 # LLM設定系
@@ -66,13 +62,11 @@ CHUNK_OVERLAP = 50
 TOP_K = 5
 RETRIEVER_WEIGHTS = [0.5, 0.5]
 
-
 # ==========================================
 # トークン関連
 # ==========================================
 MAX_ALLOWED_TOKENS = 1000
 ENCODING_KIND = "cl100k_base"
-
 
 # ==========================================
 # RAG参照用のデータソース系
@@ -87,13 +81,6 @@ SUPPORTED_EXTENSIONS = {
 
 DB_ALL_PATH = "./.db_all"
 DB_COMPANY_PATH = "./.db_company"
-
-
-# ==========================================
-# AIエージェント関連
-# ==========================================
-AI_AGENT_MAX_ITERATIONS = 5
-
 DB_SERVICE_PATH = "./.db_service"
 DB_CUSTOMER_PATH = "./.db_customer"
 
@@ -102,6 +89,11 @@ DB_NAMES = {
     DB_SERVICE_PATH: f"{RAG_TOP_FOLDER_PATH}/service",
     DB_CUSTOMER_PATH: f"{RAG_TOP_FOLDER_PATH}/customer"
 }
+
+# ==========================================
+# AIエージェント関連
+# ==========================================
+AI_AGENT_MAX_ITERATIONS = 5
 
 AI_AGENT_MODE_ON = "利用する"
 AI_AGENT_MODE_OFF = "利用しない"
@@ -118,6 +110,9 @@ SEARCH_CUSTOMER_COMMUNICATION_INFO_TOOL_DESCRIPTION = "顧客とのやりとり�
 SEARCH_WEB_INFO_TOOL_NAME = "search_web_tool"
 SEARCH_WEB_INFO_TOOL_DESCRIPTION = "自社サービス「HealthX」に関する質問で、Web検索が必要と判断した場合に使う"
 
+# FAQ Tool追加
+SEARCH_FAQ_TOOL_NAME = "search_faq_tool"
+SEARCH_FAQ_TOOL_DESCRIPTION = "よくある質問や基本的な内容を素早く調べたいときに使う"
 
 # ==========================================
 # Slack連携関連
@@ -125,7 +120,6 @@ SEARCH_WEB_INFO_TOOL_DESCRIPTION = "自社サービス「HealthX」に関する�
 EMPLOYEE_FILE_PATH = "./data/slack/従業員情報.csv"
 INQUIRY_HISTORY_FILE_PATH = "./data/slack/問い合わせ対応履歴.csv"
 CSV_ENCODING = "utf-8-sig"
-
 
 # ==========================================
 # プロンプトテンプレート
@@ -183,23 +177,18 @@ SYSTEM_PROMPT_NOTICE_SLACK = """
     # 役割
     具体的で分量の多いメッセージの作成と、指定のメンバーにメンションを当ててSlackへの送信を行うアシスタント
 
-
     # 命令
     Slackの「動作検証用」チャンネルで、メンバーIDが{slack_id_text}のメンバーに一度だけメンションを当て、生成したメッセージを送信してください。
-
 
     # 送信先のチャンネル名
     動作検証用
 
-
     # メッセージの通知先
     メンバーIDが{slack_id_text}のメンバー
-
 
     # メッセージ通知（メンション付け）のルール
     - メッセージ通知（メンション付け）は、メッセージの先頭で「一度だけ」行ってください。
     - メンション付けの行は、メンションのみとしてください。
-
 
     # メッセージの生成条件
     - 各項目について、できる限り長い文章量で、具体的に生成してください。
@@ -216,14 +205,11 @@ SYSTEM_PROMPT_NOTICE_SLACK = """
     - 【回答・対応案】について、以下の条件に従って生成してください。
         - 回答・対応案の内容と、それが良いと判断した根拠を、それぞれ3つずつ生成してください。
 
-
     # 顧客から弊社への問い合わせ内容
     {query}
 
-
     # 従業員情報と過去の問い合わせ対応履歴
     {context}
-
 
     # メッセージフォーマット
     こちらは顧客問い合わせに対しての「担当者割り振り」と「回答・対応案の提示」を自動で行うAIアシスタントです。
@@ -259,7 +245,6 @@ SYSTEM_PROMPT_NOTICE_SLACK = """
     ・問い合わせ履歴.csv
 """
 
-
 # ==========================================
 # エラー・警告メッセージ
 # ==========================================
@@ -269,7 +254,6 @@ CONVERSATION_LOG_ERROR_MESSAGE = "過去の会話履歴の表示に失敗しま�
 MAIN_PROCESS_ERROR_MESSAGE = "ユーザー入力に対しての処理に失敗しました。"
 DISP_ANSWER_ERROR_MESSAGE = "回答表示に失敗しました。"
 INPUT_TEXT_LIMIT_ERROR_MESSAGE = f"入力されたテキストの文字数が受付上限値（{MAX_ALLOWED_TOKENS}）を超えています。受付上限値を超えないよう、再度入力してください。"
-
 
 # ==========================================
 # スタイリング
