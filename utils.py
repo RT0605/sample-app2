@@ -54,7 +54,222 @@ def build_error_message(message):
     """
     return "\n".join([message, ct.COMMON_ERROR_MESSAGE])
 
-# ...（他の関数群はこれまで通り）...
+def create_rag_chain(db_name):
+    """
+    引数として渡されたDB内を参照するRAGのChainを作成
+
+    Args:
+        db_name: RAG化対象のデータを格納するデータベース名
+    """
+    logger = logging.getLogger(ct.LOGGER_NAME)
+
+    docs_all = []
+    # AIエージェント機能を使わない場合の処理
+    if db_name == ct.DB_ALL_PATH:
+        folders = os.listdir(ct.RAG_TOP_FOLDER_PATH)
+        # 「data」フォルダ直下の各フォルダ名に対して処理
+        for folder_path in folders:
+            if folder_path.startswith("."):
+                continue
+            # フォルダ内の各ファイルのデータをリストに追加
+            add_docs(f"{ct.RAG_TOP_FOLDER_PATH}/{folder_path}", docs_all)
+    # AIエージェント機能を使う場合の処理
+    else:
+        # データベース名に対応した、RAG化対象のデータ群が格納されているフォルダパスを取得
+        folder_path = ct.DB_NAMES[db_name]
+        # フォルダ内の各ファイルのデータをリストに追加
+        add_docs(folder_path, docs_all)
+
+    # OSがWindowsの場合、Unicode正規化と、cp932（Windows用の文字コード）で表現できない文字を除去
+    for doc in docs_all:
+        doc.page_content = adjust_string(doc.page_content)
+        for key in doc.metadata:
+            doc.metadata[key] = adjust_string(doc.metadata[key])
+    
+    text_splitter = CharacterTextSplitter(
+        chunk_size=ct.CHUNK_SIZE,
+        chunk_overlap=ct.CHUNK_OVERLAP,
+        separator="\n",
+    )
+    splitted_docs = text_splitter.split_documents(docs_all)
+
+    embeddings = OpenAIEmbeddings()
+
+    # すでに対象のデータベースが作成済みの場合は読み込み、未作成の場合は新規作成する
+    if os.path.isdir(db_name):
+        db = Chroma(persist_directory=".db", embedding_function=embeddings)
+    else:
+        db = Chroma.from_documents(splitted_docs, embedding=embeddings, persist_directory=".db")
+    retriever = db.as_retriever(search_kwargs={"k": ct.TOP_K})
+
+    question_generator_template = ct.SYSTEM_PROMPT_CREATE_INDEPENDENT_TEXT
+    question_generator_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", question_generator_template),
+            MessagesPlaceholder("chat_history"),
+            ("human", "{input}"),
+        ]
+    )
+    question_answer_template = ct.SYSTEM_PROMPT_INQUIRY
+    question_answer_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", question_answer_template),
+            MessagesPlaceholder("chat_history"),
+            ("human", "{input}"),
+        ]
+    )
+
+    history_aware_retriever = create_history_aware_retriever(
+        st.session_state.llm, retriever, question_generator_prompt
+    )
+
+    question_answer_chain = create_stuff_documents_chain(st.session_state.llm, question_answer_prompt)
+    rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+
+    return rag_chain
+
+def add_docs(folder_path, docs_all):
+    """
+    フォルダ内のファイル一覧を取得
+
+    Args:
+        folder_path: フォルダのパス
+        docs_all: 各ファイルデータを格納するリスト
+    """
+    files = os.listdir(folder_path)
+    for file in files:
+        # ファイルの拡張子を取得
+        file_extension = os.path.splitext(file)[1]
+        # 想定していたファイル形式の場合のみ読み込む
+        if file_extension in ct.SUPPORTED_EXTENSIONS:
+            # ファイルの拡張子に合ったdata loaderを使ってデータ読み込み
+            loader = ct.SUPPORTED_EXTENSIONS[file_extension](f"{folder_path}/{file}")
+        else:
+            continue
+        docs = loader.load()
+        docs_all.extend(docs)
+
+def run_company_doc_chain(param):
+    """
+    会社に関するデータ参照に特化したTool設定用の関数
+
+    Args:
+        param: ユーザー入力値
+
+    Returns:
+        LLMからの回答
+    """
+    # 会社に関するデータ参照に特化したChainを実行してLLMからの回答取得
+    ai_msg = st.session_state.company_doc_chain.invoke({"input": param, "chat_history": st.session_state.chat_history})
+    # 会話履歴への追加
+    st.session_state.chat_history.extend([HumanMessage(content=param), AIMessage(content=ai_msg["answer"])])
+
+    return ai_msg["answer"]
+
+def run_service_doc_chain(param):
+    """
+    サービスに関するデータ参照に特化したTool設定用の関数
+
+    Args:
+        param: ユーザー入力値
+
+    Returns:
+        LLMからの回答
+    """
+    # サービスに関するデータ参照に特化したChainを実行してLLMからの回答取得
+    ai_msg = st.session_state.service_doc_chain.invoke({"input": param, "chat_history": st.session_state.chat_history})
+
+    # 会話履歴への追加
+    st.session_state.chat_history.extend([HumanMessage(content=param), AIMessage(content=ai_msg["answer"])])
+
+    return ai_msg["answer"]
+
+def run_customer_doc_chain(param):
+    """
+    顧客とのやり取りに関するデータ参照に特化したTool設定用の関数
+
+    Args:
+        param: ユーザー入力値
+    
+    Returns:
+        LLMからの回答
+    """
+    # 顧客とのやり取りに関するデータ参照に特化したChainを実行してLLMからの回答取得
+    ai_msg = st.session_state.customer_doc_chain.invoke({"input": param, "chat_history": st.session_state.chat_history})
+
+    # 会話履歴への追加
+    st.session_state.chat_history.extend([HumanMessage(content=param), AIMessage(content=ai_msg["answer"])])
+
+    return ai_msg["answer"]
+
+def run_faq_doc_chain(param):
+    """
+    FAQ的な回答（基本的な質問やよくある問い合わせ）に特化したTool用関数。
+    ここではcompany RAGをFAQとして流用。
+
+    Args:
+        param: ユーザー入力値
+
+    Returns:
+        LLMからの回答
+    """
+    ai_msg = st.session_state.company_doc_chain.invoke({"input": param, "chat_history": st.session_state.chat_history})
+    st.session_state.chat_history.extend([HumanMessage(content=param), AIMessage(content=ai_msg["answer"])])
+    return ai_msg["answer"]
+
+def delete_old_conversation_log(result):
+    """
+    古い会話履歴の削除
+
+    Args:
+        result: LLMからの回答
+    """
+    # LLMからの回答テキストのトークン数を取得
+    response_tokens = len(st.session_state.enc.encode(result))
+    # 過去の会話履歴の合計トークン数に加算
+    st.session_state.total_tokens += response_tokens
+
+    # トークン数が上限値を下回るまで、順に古い会話履歴を削除
+    while st.session_state.total_tokens > ct.MAX_ALLOWED_TOKENS:
+        # 最も古い会話履歴を削除
+        removed_message = st.session_state.chat_history.pop(1)
+        # 最も古い会話履歴のトークン数を取得
+        removed_tokens = len(st.session_state.enc.encode(removed_message.content))
+        # 過去の会話履歴の合計トークン数から、最も古い会話履歴のトークン数を引く
+        st.session_state.total_tokens -= removed_tokens
+
+def execute_agent_or_chain(chat_message):
+    """
+    AIエージェントもしくはAIエージェントなしのRAGのChainを実行
+
+    Args:
+        chat_message: ユーザーメッセージ
+    
+    Returns:
+        LLMからの回答
+    """
+    logger = logging.getLogger(ct.LOGGER_NAME)
+
+    # AIエージェント機能を利用する場合
+    if st.session_state.agent_mode == ct.AI_AGENT_MODE_ON:
+        # LLMによる回答をストリーミング出力するためのオブジェクトを用意
+        st_callback = StreamlitCallbackHandler(st.container())
+        # Agent Executorの実行（AIエージェント機能を使う場合は、Toolとして設定した関数内で会話履歴への追加処理を実施）
+        result = st.session_state.agent_executor.invoke({"input": chat_message}, {"callbacks": [st_callback]})
+        response = result["output"]
+    # AIエージェントを利用しない場合
+    else:
+        # RAGのChainを実行
+        result = st.session_state.rag_chain.invoke({"input": chat_message, "chat_history": st.session_state.chat_history})
+        # 会話履歴への追加
+        st.session_state.chat_history.extend([HumanMessage(content=chat_message), AIMessage(content=result["answer"])])
+        response = result["answer"]
+
+    # LLMから参照先のデータを基にした回答が行われた場合のみ、フィードバックボタンを表示
+    if response != ct.NO_DOC_MATCH_MESSAGE:
+        st.session_state.answer_flg = True
+    
+    return response
 
 def notice_slack(chat_message):
     """
@@ -135,11 +350,11 @@ def notice_slack(chat_message):
     # 問い合わせ内容と関連性が高い従業員情報を、IDで照合して取得
     target_employees = get_target_employees(employees, employee_ids)
     
-    # 名前のリストを取得
-    names = get_names(target_employees)
+    # 問い合わせ内容と関連性が高い従業員情報の中から、SlackIDのみを抽出
+    slack_ids = get_slack_ids(target_employees)
     
-    # 抽出した名前の連結テキストを生成
-    name_text = create_name_text(names)
+    # 抽出したSlackIDの連結テキストを生成
+    slack_id_text = create_slack_id_text(slack_ids)
     
     # プロンプトに埋め込むための（問い合わせ内容と関連性が高い）従業員情報テキストを取得
     context = get_context(target_employees)
@@ -149,82 +364,15 @@ def notice_slack(chat_message):
 
     # Slack通知用のプロンプト生成
     prompt = PromptTemplate(
-        input_variables=["name_text", "query", "context", "now_datetime"],
+        input_variables=["slack_id_text", "query", "context", "now_datetime"],
         template=ct.SYSTEM_PROMPT_NOTICE_SLACK,
     )
-    prompt_message = prompt.format(name_text=name_text, query=chat_message, context=context, now_datetime=now_datetime)
+    prompt_message = prompt.format(slack_id_text=slack_id_text, query=chat_message, context=context, now_datetime=now_datetime)
 
     # Slack通知の実行
     agent_executor.invoke({"input": prompt_message})
 
     return ct.CONTACT_THANKS_MESSAGE
-
-def get_target_employees(employees, employee_ids):
-    """
-    問い合わせ内容と関連性が高い従業員情報一覧の取得
-
-    Args:
-        employees: 問い合わせ内容と関連性が高い従業員情報一覧
-        employee_ids: 問い合わせ内容と関連性が「特に」高い従業員のID一覧
-
-    Returns:
-        問い合わせ内容と関連性が「特に」高い従業員情報一覧
-    """
-
-    target_employees = []
-    duplicate_check = []
-    target_text = "従業員ID"
-    for employee in employees:
-        # 従業員IDの取得
-        num = employee.page_content.find(target_text)
-        employee_id = employee.page_content[num+len(target_text)+2:].split("\n")[0]
-        # 問い合わせ内容と関連性が高い従業員情報を、IDで照合して取得（重複除去）
-        if employee_id in employee_ids:
-            if employee_id in duplicate_check:
-                continue
-            duplicate_check.append(employee_id)
-            target_employees.append(employee)
-    
-    return target_employees
-
-def get_names(target_employees):
-    """
-    名前の一覧を取得
-
-    Args:
-        target_employees: 問い合わせ内容と関連性が高い従業員情報一覧
-
-    Returns:
-        名前の一覧
-    """
-
-    target_text = "名前"
-    names = []
-    for employee in target_employees:
-        num = employee.page_content.find(target_text)
-        name = employee.page_content[num+len(target_text)+2:].split("\n")[0]
-        names.append(name)
-    
-    return names
-
-def create_name_text(names):
-    """
-    名前の一覧を取得
-
-    Args:
-        names: 名前の一覧
-
-    Returns:
-        名前を「と」で繋いだテキスト
-    """
-    name_text = ""
-    for i, name in enumerate(names):
-        name_text += f"「{name}」"
-        # 最後の名前以外、連結後に「と」を追加
-        if not i == len(names)-1:
-            name_text += "と"
-    
-    return name_text
 
 def adjust_reference_data(docs, docs_history):
     """
@@ -275,6 +423,73 @@ def adjust_reference_data(docs, docs_history):
         docs_all.append(new_doc)
     
     return docs_all
+
+def get_target_employees(employees, employee_ids):
+    """
+    問い合わせ内容と関連性が高い従業員情報一覧の取得
+
+    Args:
+        employees: 問い合わせ内容と関連性が高い従業員情報一覧
+        employee_ids: 問い合わせ内容と関連性が「特に」高い従業員のID一覧
+
+    Returns:
+        問い合わせ内容と関連性が「特に」高い従業員情報一覧
+    """
+
+    target_employees = []
+    duplicate_check = []
+    target_text = "従業員ID"
+    for employee in employees:
+        # 従業員IDの取得
+        num = employee.page_content.find(target_text)
+        employee_id = employee.page_content[num+len(target_text)+2:].split("\n")[0]
+        # 問い合わせ内容と関連性が高い従業員情報を、IDで照合して取得（重複除去）
+        if employee_id in employee_ids:
+            if employee_id in duplicate_check:
+                continue
+            duplicate_check.append(employee_id)
+            target_employees.append(employee)
+    
+    return target_employees
+
+def get_slack_ids(target_employees):
+    """
+    SlackIDの一覧を取得
+
+    Args:
+        target_employees: 問い合わせ内容と関連性が高い従業員情報一覧
+
+    Returns:
+        SlackIDの一覧
+    """
+
+    target_text = "SlackID"
+    slack_ids = []
+    for employee in target_employees:
+        num = employee.page_content.find(target_text)
+        slack_id = employee.page_content[num+len(target_text)+2:].split("\n")[0]
+        slack_ids.append(slack_id)
+    
+    return slack_ids
+
+def create_slack_id_text(slack_ids):
+    """
+    SlackIDの一覧を取得
+
+    Args:
+        slack_ids: SlackIDの一覧
+
+    Returns:
+        SlackIDを「と」で繋いだテキスト
+    """
+    slack_id_text = ""
+    for i, id in enumerate(slack_ids):
+        slack_id_text += f"「{id}」"
+        # 最後のSlackID以外、連結後に「と」を追加
+        if not i == len(slack_ids)-1:
+            slack_id_text += "と"
+    
+    return slack_id_text
 
 def get_context(docs):
     """
