@@ -33,12 +33,10 @@ from langchain import LLMChain
 import datetime
 import constants as ct
 
-
 ############################################################
 # 設定関連
 ############################################################
 load_dotenv()
-
 
 ############################################################
 # 関数定義
@@ -55,7 +53,6 @@ def build_error_message(message):
         エラーメッセージと管理者問い合わせテンプレートの連結テキスト
     """
     return "\n".join([message, ct.COMMON_ERROR_MESSAGE])
-
 
 def create_rag_chain(db_name):
     """
@@ -131,7 +128,6 @@ def create_rag_chain(db_name):
 
     return rag_chain
 
-
 def add_docs(folder_path, docs_all):
     """
     フォルダ内のファイル一覧を取得
@@ -152,7 +148,6 @@ def add_docs(folder_path, docs_all):
             continue
         docs = loader.load()
         docs_all.extend(docs)
-
 
 def run_company_doc_chain(param):
     """
@@ -207,6 +202,20 @@ def run_customer_doc_chain(param):
 
     return ai_msg["answer"]
 
+def run_faq_doc_chain(param):
+    """
+    FAQ的な回答（基本的な質問やよくある問い合わせ）に特化したTool用関数。
+    ここではcompany RAGをFAQとして流用。
+
+    Args:
+        param: ユーザー入力値
+
+    Returns:
+        LLMからの回答
+    """
+    ai_msg = st.session_state.company_doc_chain.invoke({"input": param, "chat_history": st.session_state.chat_history})
+    st.session_state.chat_history.extend([HumanMessage(content=param), AIMessage(content=ai_msg["answer"])])
+    return ai_msg["answer"]
 
 def delete_old_conversation_log(result):
     """
@@ -228,7 +237,6 @@ def delete_old_conversation_log(result):
         removed_tokens = len(st.session_state.enc.encode(removed_message.content))
         # 過去の会話履歴の合計トークン数から、最も古い会話履歴のトークン数を引く
         st.session_state.total_tokens -= removed_tokens
-
 
 def execute_agent_or_chain(chat_message):
     """
@@ -262,7 +270,6 @@ def execute_agent_or_chain(chat_message):
         st.session_state.answer_flg = True
     
     return response
-
 
 def notice_slack(chat_message):
     """
@@ -367,7 +374,6 @@ def notice_slack(chat_message):
 
     return ct.CONTACT_THANKS_MESSAGE
 
-
 def adjust_reference_data(docs, docs_history):
     """
     Slack通知用の参照先データの整形
@@ -418,8 +424,6 @@ def adjust_reference_data(docs, docs_history):
     
     return docs_all
 
-
-
 def get_target_employees(employees, employee_ids):
     """
     問い合わせ内容と関連性が高い従業員情報一覧の取得
@@ -448,7 +452,6 @@ def get_target_employees(employees, employee_ids):
     
     return target_employees
 
-
 def get_slack_ids(target_employees):
     """
     SlackIDの一覧を取得
@@ -469,7 +472,6 @@ def get_slack_ids(target_employees):
     
     return slack_ids
 
-
 def create_slack_id_text(slack_ids):
     """
     SlackIDの一覧を取得
@@ -488,7 +490,6 @@ def create_slack_id_text(slack_ids):
             slack_id_text += "と"
     
     return slack_id_text
-
 
 def get_context(docs):
     """
@@ -509,7 +510,6 @@ def get_context(docs):
 
     return context
 
-
 def get_datetime():
     """
     現在日時を取得
@@ -522,7 +522,6 @@ def get_datetime():
     now_datetime = dt_now.strftime('%Y年%m月%d日 %H:%M:%S')
 
     return now_datetime
-
 
 def preprocess_func(text):
     """
@@ -541,7 +540,6 @@ def preprocess_func(text):
     words = list(set(words))
 
     return words
-
 
 def adjust_string(s):
     """
